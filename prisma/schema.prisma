@@ -1,0 +1,72 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 存储用户推文
+model Tweet {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  tweetId   String   @unique
+  fullText  String
+  tweetUrl  String
+  media     String
+  sendTime  DateTime
+  rawJson   String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model FetchTweetRawJson {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  tweetIds  String
+  rawJson   String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// 存储用户信息
+model User {
+  id             Int      @id @default(autoincrement())
+  userId         String   @unique
+  name           String
+  screenName     String
+  description    String
+  followersCount Int
+  friendsCount   Int
+  rawJson        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// 用户信息变更表
+model UserDiff {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  prevJson  String?
+  diffJson  String
+  prevTime  DateTime
+  newTime   DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// 抓取推特用户的screenName列表
+model FetchUserScreenName {
+  id          Int       @id @default(autoincrement())
+  screenName  String    @unique
+  lastFetchAt DateTime?
+  createdAt   DateTime  @default(now())
+}
