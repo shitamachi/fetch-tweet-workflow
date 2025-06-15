@@ -49,20 +49,20 @@ function arrayIncludes<T>(array: T[], item: T): boolean {
 function extractFieldFromPath(path: string): string {
     // 移除 $ 前缀
     let cleanPath = path.replace(/^\$\.?/, '');
-    
+
     // 如果是空字符串，返回空
     if (!cleanPath) {
         return '';
     }
-    
+
     // 取第一个路径段，可能包含数组索引
     const firstSegment = cleanPath.split('.')[0];
-    
+
     // 如果包含数组索引，只取数组名部分
     if (firstSegment.indexOf('[') !== -1) {
         return firstSegment.substring(0, firstSegment.indexOf('['));
     }
-    
+
     return firstSegment;
 }
 
@@ -76,7 +76,7 @@ function getValueByPath(obj: any, path: string): any {
     try {
         const segments = path.replace(/^\$\.?/, '').split('.');
         let current = obj;
-        
+
         for (let i = 0; i < segments.length; i++) {
             const segment = segments[i];
             if (current === null || current === undefined) {
@@ -96,7 +96,7 @@ function getValueByPath(obj: any, path: string): any {
                 current = current[segment];
             }
         }
-        
+
         return current;
     } catch (error) {
         return undefined;
@@ -129,7 +129,7 @@ export function findDifferences<T extends object>(
 
     // 使用 json-diff-ts 计算差异
     const diffs = diff(obj1, obj2);
-    
+
     if (!diffs) {
         // 没有差异
         return [];
@@ -137,25 +137,25 @@ export function findDifferences<T extends object>(
 
     // 将差异转换为原子化变更集
     const atomicChanges = atomizeChangeset(diffs);
-    
+
     // 如果没有元数据字段配置，直接返回所有原子化变更
     if (metadataFields.length === 0) {
         return atomicChanges;
     }
-    
+
     // 过滤掉元数据字段的变更
     const filteredChanges: IAtomicChange[] = [];
-    
+
     for (let i = 0; i < atomicChanges.length; i++) {
         const change = atomicChanges[i];
         const fieldName = extractFieldFromPath(change.path);
-        
+
         // 如果不是元数据字段，则包含在结果中
         if (!arrayIncludes(metadataFields, fieldName)) {
             filteredChanges.push(change);
         }
     }
-    
+
     return filteredChanges;
 }
 
@@ -180,26 +180,26 @@ export function getMetadataChanges<T extends object>(
 ): { [key: string]: { value1: any; value2: any } } {
     const metadataFields = options.metadataFields || [];
     const metadata: { [key: string]: { value1: any; value2: any } } = {};
-    
+
     if (metadataFields.length === 0) {
         return metadata;
     }
-    
+
     // 使用 json-diff-ts 计算差异
     const diffs = diff(obj1, obj2);
-    
+
     if (!diffs) {
         return metadata;
     }
 
     // 将差异转换为原子化变更集
     const atomicChanges = atomizeChangeset(diffs);
-    
+
     // 收集元数据字段的变更
     for (let i = 0; i < atomicChanges.length; i++) {
         const change = atomicChanges[i];
         const fieldName = extractFieldFromPath(change.path);
-        
+
         // 如果是元数据字段
         if (arrayIncludes(metadataFields, fieldName)) {
             metadata[fieldName] = {
@@ -208,6 +208,6 @@ export function getMetadataChanges<T extends object>(
             };
         }
     }
-    
+
     return metadata;
 }

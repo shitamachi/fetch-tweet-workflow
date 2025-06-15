@@ -9,7 +9,7 @@ export const _xClient = async (TOKEN: string) => {
             cookie: `auth_token=${TOKEN}`,
         },
     })
-    
+
     const resCookie = resp.headers.getAll("set-cookie");
     const cookieObj = resCookie.reduce((acc: Record<string, string>, cookie: string) => {
         const [name, value] = cookie.split(";")[0].split("=");
