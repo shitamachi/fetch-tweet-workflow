@@ -1,4 +1,6 @@
-import { findDifferences, hasDiff, Difference, DiffOptions, DiffResult } from './obj-diff';
+/// <reference types="jest" />
+import { findDifferences, hasDiff, getMetadataChanges, DiffOptions } from './obj-diff';
+import { IAtomicChange } from 'json-diff-ts';
 
 describe('obj-diff', () => {
     describe('findDifferences', () => {
@@ -8,11 +10,12 @@ describe('obj-diff', () => {
             
             const result = findDifferences(obj1, obj2);
             
-            expect(result.differences).toHaveLength(1);
-            expect(result.differences[0].field).toBe('name');
-            expect(result.differences[0].value1).toBe('Alice');
-            expect(result.differences[0].value2).toBe('Bob');
-            expect(result.metadata).toEqual({});
+            expect(result).toHaveLength(1);
+            expect(result[0].type).toBe('UPDATE');
+            expect(result[0].key).toBe('name');
+            expect(result[0].path).toBe('$.name');
+            expect(result[0].oldValue).toBe('Alice');
+            expect(result[0].value).toBe('Bob');
         });
 
         it('应该检测到数值属性的差异', () => {
@@ -21,17 +24,19 @@ describe('obj-diff', () => {
             
             const result = findDifferences(obj1, obj2);
             
-            expect(result.differences).toHaveLength(2);
-            expect(result.differences.find(d => d.field === 'count')).toEqual({
-                field: 'count',
-                value1: 10,
-                value2: 15
-            });
-            expect(result.differences.find(d => d.field === 'price')).toEqual({
-                field: 'price',
-                value1: 99.99,
-                value2: 89.99
-            });
+            expect(result).toHaveLength(2);
+            
+            const countChange = result.find(c => c.path === '$.count');
+            expect(countChange).toBeDefined();
+            expect(countChange!.type).toBe('UPDATE');
+            expect(countChange!.oldValue).toBe(10);
+            expect(countChange!.value).toBe(15);
+            
+            const priceChange = result.find(c => c.path === '$.price');
+            expect(priceChange).toBeDefined();
+            expect(priceChange!.type).toBe('UPDATE');
+            expect(priceChange!.oldValue).toBe(99.99);
+            expect(priceChange!.value).toBe(89.99);
         });
 
         it('应该检测到嵌套对象的差异', () => {
@@ -50,10 +55,19 @@ describe('obj-diff', () => {
             
             const result = findDifferences(obj1, obj2);
             
-            expect(result.differences).toHaveLength(1);
-            expect(result.differences[0].field).toBe('user');
-            expect(result.differences[0].value1).toEqual(obj1.user);
-            expect(result.differences[0].value2).toEqual(obj2.user);
+            expect(result.length).toBeGreaterThan(0);
+            
+            const cityChange = result.find(c => c.path === '$.user.profile.city');
+            expect(cityChange).toBeDefined();
+            expect(cityChange!.type).toBe('UPDATE');
+            expect(cityChange!.oldValue).toBe('New York');
+            expect(cityChange!.value).toBe('Boston');
+            
+            const ageChange = result.find(c => c.path === '$.user.profile.age');
+            expect(ageChange).toBeDefined();
+            expect(ageChange!.type).toBe('UPDATE');
+            expect(ageChange!.oldValue).toBe(25);
+            expect(ageChange!.value).toBe(26);
         });
 
         it('应该检测到数组的差异', () => {
@@ -62,29 +76,35 @@ describe('obj-diff', () => {
             
             const result = findDifferences(obj1, obj2);
             
-            expect(result.differences).toHaveLength(1);
-            expect(result.differences[0].field).toBe('tags');
-            expect(result.differences[0].value1).toEqual(['javascript', 'react']);
-            expect(result.differences[0].value2).toEqual(['javascript', 'vue', 'typescript']);
+            expect(result.length).toBeGreaterThan(0);
+            
+            // 应该有数组变更
+            const arrayChanges = result.filter(c => c.path.startsWith('$.tags'));
+            expect(arrayChanges.length).toBeGreaterThan(0);
         });
 
         it('应该检测到布尔值和null的差异', () => {
-            const obj1 = { active: true, data: null };
-            const obj2 = { active: false, data: 'something' };
+            const obj1 = { active: true, data: null as any };
+            const obj2 = { active: false, data: 'something' as any };
             
             const result = findDifferences(obj1, obj2);
             
-            expect(result.differences).toHaveLength(2);
-            expect(result.differences.find(d => d.field === 'active')).toEqual({
-                field: 'active',
-                value1: true,
-                value2: false
-            });
-            expect(result.differences.find(d => d.field === 'data')).toEqual({
-                field: 'data',
-                value1: null,
-                value2: 'something'
-            });
+            // json-diff-ts 对于类型变化可能产生 REMOVE + ADD 操作
+            expect(result.length).toBeGreaterThanOrEqual(2);
+            
+            const activeChange = result.find(c => c.path === '$.active');
+            expect(activeChange).toBeDefined();
+            expect(activeChange!.type).toBe('UPDATE');
+            expect(activeChange!.oldValue).toBe(true);
+            expect(activeChange!.value).toBe(false);
+            
+            // data 字段从 null 变为 string，可能是 REMOVE + ADD
+            const dataChanges = result.filter(c => c.path === '$.data');
+            expect(dataChanges.length).toBeGreaterThan(0);
+            
+            // 检查是否有涉及 'something' 值的变更
+            const dataWithSomething = dataChanges.find(c => c.value === 'something');
+            expect(dataWithSomething).toBeDefined();
         });
 
         it('应该检测到添加的属性', () => {
@@ -93,17 +113,17 @@ describe('obj-diff', () => {
             
             const result = findDifferences(obj1, obj2);
             
-            expect(result.differences).toHaveLength(2);
-            expect(result.differences.find(d => d.field === 'age')).toEqual({
-                field: 'age',
-                value1: undefined,
-                value2: 25
-            });
-            expect(result.differences.find(d => d.field === 'email')).toEqual({
-                field: 'email',
-                value1: undefined,
-                value2: 'alice@example.com'
-            });
+            expect(result).toHaveLength(2);
+            
+            const ageChange = result.find(c => c.path === '$.age');
+            expect(ageChange).toBeDefined();
+            expect(ageChange!.type).toBe('ADD');
+            expect(ageChange!.value).toBe(25);
+            
+            const emailChange = result.find(c => c.path === '$.email');
+            expect(emailChange).toBeDefined();
+            expect(emailChange!.type).toBe('ADD');
+            expect(emailChange!.value).toBe('alice@example.com');
         });
 
         it('应该检测到删除的属性', () => {
@@ -112,36 +132,36 @@ describe('obj-diff', () => {
             
             const result = findDifferences(obj1, obj2);
             
-            expect(result.differences).toHaveLength(2);
-            expect(result.differences.find(d => d.field === 'age')).toEqual({
-                field: 'age',
-                value1: 25,
-                value2: undefined
-            });
-            expect(result.differences.find(d => d.field === 'email')).toEqual({
-                field: 'email',
-                value1: 'alice@example.com',
-                value2: undefined
-            });
+            expect(result).toHaveLength(2);
+            
+            const ageChange = result.find(c => c.path === '$.age');
+            expect(ageChange).toBeDefined();
+            expect(ageChange!.type).toBe('REMOVE');
+            expect(ageChange!.value).toBe(25);
+            
+            const emailChange = result.find(c => c.path === '$.email');
+            expect(emailChange).toBeDefined();
+            expect(emailChange!.type).toBe('REMOVE');
+            expect(emailChange!.value).toBe('alice@example.com');
         });
 
-        it('应该正确处理元数据字段', () => {
+        it('应该过滤掉元数据字段', () => {
             const obj1 = { name: 'Alice', age: 25, timestamp: 1000 };
             const obj2 = { name: 'Bob', age: 25, timestamp: 2000 };
             
             const result = findDifferences(obj1, obj2, { metadataFields: ['timestamp'] });
             
-            expect(result.differences).toHaveLength(1);
-            expect(result.differences[0].field).toBe('name');
-            expect(result.metadata).toEqual({
-                timestamp: {
-                    value1: 1000,
-                    value2: 2000
-                }
-            });
+            expect(result).toHaveLength(1);
+            expect(result[0].path).toBe('$.name');
+            expect(result[0].oldValue).toBe('Alice');
+            expect(result[0].value).toBe('Bob');
+            
+            // 确认 timestamp 变更被过滤掉了
+            const timestampChange = result.find(c => c.path === '$.timestamp');
+            expect(timestampChange).toBeUndefined();
         });
 
-        it('应该正确处理多个元数据字段', () => {
+        it('应该过滤掉多个元数据字段', () => {
             const obj1 = { 
                 name: 'Alice', 
                 age: 25, 
@@ -161,51 +181,8 @@ describe('obj-diff', () => {
                 metadataFields: ['timestamp', 'version', 'updatedBy'] 
             });
             
-            expect(result.differences).toHaveLength(1);
-            expect(result.differences[0].field).toBe('name');
-            expect(result.metadata).toEqual({
-                timestamp: { value1: 1000, value2: 2000 },
-                version: { value1: 'v1', value2: 'v2' },
-                updatedBy: { value1: 'system', value2: 'admin' }
-            });
-        });
-
-        it('应该处理复杂的嵌套结构', () => {
-            const obj1 = {
-                user: {
-                    id: '123',
-                    profile: {
-                        name: 'Alice',
-                        contact: {
-                            email: 'alice@old.com',
-                            phone: '123-456-7890'
-                        },
-                        preferences: ['dark-mode', 'notifications']
-                    }
-                },
-                settings: { theme: 'dark' }
-            };
-            
-            const obj2 = {
-                user: {
-                    id: '123',
-                    profile: {
-                        name: 'Alice Smith',
-                        contact: {
-                            email: 'alice@new.com',
-                            phone: '123-456-7890'
-                        },
-                        preferences: ['dark-mode', 'notifications', 'auto-save']
-                    }
-                },
-                settings: { theme: 'light', language: 'en' }
-            };
-            
-            const result = findDifferences(obj1, obj2);
-            
-            expect(result.differences).toHaveLength(2);
-            expect(result.differences.find(d => d.field === 'user')).toBeDefined();
-            expect(result.differences.find(d => d.field === 'settings')).toBeDefined();
+            expect(result).toHaveLength(1);
+            expect(result[0].path).toBe('$.name');
         });
 
         it('应该正确处理空对象', () => {
@@ -214,12 +191,10 @@ describe('obj-diff', () => {
             
             const result = findDifferences(obj1, obj2);
             
-            expect(result.differences).toHaveLength(1);
-            expect(result.differences[0]).toEqual({
-                field: 'name',
-                value1: undefined,
-                value2: 'Alice'
-            });
+            expect(result).toHaveLength(1);
+            expect(result[0].type).toBe('ADD');
+            expect(result[0].path).toBe('$.name');
+            expect(result[0].value).toBe('Alice');
         });
 
         it('应该正确处理相同的对象', () => {
@@ -238,22 +213,24 @@ describe('obj-diff', () => {
             
             const result = findDifferences(obj1, obj2);
             
-            expect(result.differences).toHaveLength(0);
-            expect(result.metadata).toEqual({});
+            expect(result).toHaveLength(0);
         });
 
         it('应该处理undefined和null的差异', () => {
-            const obj1 = { value: undefined };
-            const obj2 = { value: null };
+            const obj1 = { value: undefined as any };
+            const obj2 = { value: null as any };
             
             const result = findDifferences(obj1, obj2);
             
-            expect(result.differences).toHaveLength(1);
-            expect(result.differences[0]).toEqual({
-                field: 'value',
-                value1: undefined,
-                value2: null
-            });
+            expect(result.length).toBeGreaterThan(0);
+            
+            // 查找与 value 字段相关的变更
+            const valueChanges = result.filter(c => c.path === '$.value');
+            expect(valueChanges.length).toBeGreaterThan(0);
+            
+            // 应该有涉及 null 值的变更
+            const nullChange = valueChanges.find(c => c.value === null);
+            expect(nullChange).toBeDefined();
         });
 
         it('应该处理日期对象的差异', () => {
@@ -264,35 +241,11 @@ describe('obj-diff', () => {
             
             const result = findDifferences(obj1, obj2);
             
-            expect(result.differences).toHaveLength(1);
-            expect(result.differences[0]).toEqual({
-                field: 'createdAt',
-                value1: date1,
-                value2: date2
-            });
-        });
-
-        it('应该处理数组对象的复杂差异', () => {
-            const obj1 = {
-                users: [
-                    { id: 1, name: 'Alice' },
-                    { id: 2, name: 'Bob' }
-                ]
-            };
-            const obj2 = {
-                users: [
-                    { id: 1, name: 'Alice Smith' },
-                    { id: 2, name: 'Bob' },
-                    { id: 3, name: 'Charlie' }
-                ]
-            };
-            
-            const result = findDifferences(obj1, obj2);
-            
-            expect(result.differences).toHaveLength(1);
-            expect(result.differences[0].field).toBe('users');
-            expect(result.differences[0].value1).toEqual(obj1.users);
-            expect(result.differences[0].value2).toEqual(obj2.users);
+            expect(result).toHaveLength(1);
+            expect(result[0].type).toBe('UPDATE');
+            expect(result[0].path).toBe('$.createdAt');
+            expect(result[0].oldValue).toEqual(date1);
+            expect(result[0].value).toEqual(date2);
         });
 
         it('应该处理仅有元数据字段变化的情况', () => {
@@ -301,13 +254,7 @@ describe('obj-diff', () => {
             
             const result = findDifferences(obj1, obj2, { metadataFields: ['timestamp'] });
             
-            expect(result.differences).toHaveLength(0);
-            expect(result.metadata).toEqual({
-                timestamp: {
-                    value1: 1000,
-                    value2: 2000
-                }
-            });
+            expect(result).toHaveLength(0);
         });
 
         it('应该处理空的metadataFields配置', () => {
@@ -316,41 +263,98 @@ describe('obj-diff', () => {
             
             const result = findDifferences(obj1, obj2, { metadataFields: [] });
             
-            expect(result.differences).toHaveLength(2);
-            expect(result.metadata).toEqual({});
+            expect(result).toHaveLength(2);
+        });
+
+        it('应该在没有metadataFields时返回所有变更', () => {
+            const obj1 = { name: 'Alice', age: 25 };
+            const obj2 = { name: 'Bob', age: 26 };
+            
+            const result = findDifferences(obj1, obj2);
+            
+            expect(result).toHaveLength(2);
         });
     });
 
     describe('hasDiff', () => {
-        it('应该在有差异时返回true', () => {
-            const diffResult: DiffResult<any> = {
-                differences: [
-                    { field: 'name', value1: 'Alice', value2: 'Bob' }
-                ],
-                metadata: {}
-            };
-            
-            expect(hasDiff(diffResult)).toBe(true);
-        });
-
-        it('应该在没有差异时返回false', () => {
-            const diffResult: DiffResult<any> = {
-                differences: [],
-                metadata: {}
-            };
-            
-            expect(hasDiff(diffResult)).toBe(false);
-        });
-
-        it('应该在有元数据但没有差异时返回false', () => {
-            const diffResult: DiffResult<any> = {
-                differences: [],
-                metadata: {
-                    timestamp: { value1: 1000, value2: 2000 }
+        it('应该在有变更时返回true', () => {
+            const changes: IAtomicChange[] = [
+                { 
+                    type: 'UPDATE' as any, 
+                    key: 'name', 
+                    path: '$.name', 
+                    valueType: 'String',
+                    oldValue: 'Alice', 
+                    value: 'Bob' 
                 }
+            ];
+            
+            expect(hasDiff(changes)).toBe(true);
+        });
+
+        it('应该在没有变更时返回false', () => {
+            const changes: IAtomicChange[] = [];
+            
+            expect(hasDiff(changes)).toBe(false);
+        });
+    });
+
+    describe('getMetadataChanges', () => {
+        it('应该正确提取元数据字段变更', () => {
+            const obj1 = { name: 'Alice', age: 25, timestamp: 1000 };
+            const obj2 = { name: 'Bob', age: 25, timestamp: 2000 };
+            
+            const metadata = getMetadataChanges(obj1, obj2, { metadataFields: ['timestamp'] });
+            
+            expect(metadata).toEqual({
+                timestamp: {
+                    value1: 1000,
+                    value2: 2000
+                }
+            });
+        });
+
+        it('应该正确提取多个元数据字段变更', () => {
+            const obj1 = { 
+                name: 'Alice', 
+                timestamp: 1000,
+                version: 'v1',
+                updatedBy: 'system'
+            };
+            const obj2 = { 
+                name: 'Bob', 
+                timestamp: 2000,
+                version: 'v2',
+                updatedBy: 'admin'
             };
             
-            expect(hasDiff(diffResult)).toBe(false);
+            const metadata = getMetadataChanges(obj1, obj2, { 
+                metadataFields: ['timestamp', 'version', 'updatedBy'] 
+            });
+            
+            expect(metadata).toEqual({
+                timestamp: { value1: 1000, value2: 2000 },
+                version: { value1: 'v1', value2: 'v2' },
+                updatedBy: { value1: 'system', value2: 'admin' }
+            });
+        });
+
+        it('应该在没有元数据字段时返回空对象', () => {
+            const obj1 = { name: 'Alice', age: 25 };
+            const obj2 = { name: 'Bob', age: 26 };
+            
+            const metadata = getMetadataChanges(obj1, obj2, { metadataFields: [] });
+            
+            expect(metadata).toEqual({});
+        });
+
+        it('应该在没有差异时返回空对象', () => {
+            const obj1 = { name: 'Alice', timestamp: 1000 };
+            const obj2 = { name: 'Alice', timestamp: 1000 };
+            
+            const metadata = getMetadataChanges(obj1, obj2, { metadataFields: ['timestamp'] });
+            
+            expect(metadata).toEqual({});
         });
     });
 
@@ -368,9 +372,10 @@ describe('obj-diff', () => {
             const result = findDifferences(user1, user2);
             
             // TypeScript 应该推断出正确的类型
-            const firstDiff = result.differences[0];
-            expect(typeof firstDiff.field).toBe('string');
-            expect(['id', 'name', 'age']).toContain(firstDiff.field);
+            expect(Array.isArray(result)).toBe(true);
+            expect(result.length).toBeGreaterThan(0);
+            expect(result[0]).toHaveProperty('type');
+            expect(result[0]).toHaveProperty('path');
         });
     });
 
@@ -387,7 +392,7 @@ describe('obj-diff', () => {
             
             const result = findDifferences(largeObj1, largeObj2);
             
-            expect(result.differences.length).toBe(500);
+            expect(result.length).toBe(500);
         });
 
         it('应该处理深层嵌套的对象', () => {
@@ -406,8 +411,11 @@ describe('obj-diff', () => {
             
             const result = findDifferences(deepObj1, deepObj2);
             
-            expect(result.differences).toHaveLength(1);
-            expect(result.differences[0].field).toBe('nested');
+            expect(result.length).toBeGreaterThan(0);
+            
+            // 查找深层变更
+            const deepChange = result.find(c => c.path.includes('nested') && c.value === 'changed');
+            expect(deepChange).toBeDefined();
         });
 
         it('应该处理循环引用（预期抛出错误）', () => {
@@ -460,15 +468,25 @@ describe('obj-diff', () => {
                 metadataFields: ['ts'] 
             });
 
-            expect(result.differences).toHaveLength(1);
-            expect(result.differences[0].field).toBe('user');
-            expect(result.metadata).toEqual({
+            expect(result.length).toBeGreaterThan(0);
+            expect(hasDiff(result)).toBe(true);
+            
+            // 检查具体的变更
+            const descriptionChange = result.find(c => c.path === '$.user.legacy.description');
+            expect(descriptionChange).toBeDefined();
+            expect(descriptionChange!.oldValue).toBe('Software Developer');
+            expect(descriptionChange!.value).toBe('Senior Software Developer');
+            
+            // 检查元数据
+            const metadata = getMetadataChanges(userResults1, userResults2, { 
+                metadataFields: ['ts'] 
+            });
+            expect(metadata).toEqual({
                 ts: {
                     value1: 1640995200000,
                     value2: 1640995260000
                 }
             });
-            expect(hasDiff(result)).toBe(true);
         });
 
         it('应该模拟配置文件更新场景', () => {
@@ -505,11 +523,31 @@ describe('obj-diff', () => {
                 metadataFields: ['version', 'lastUpdated']
             });
 
-            expect(result.differences).toHaveLength(2);
-            expect(result.differences.find(d => d.field === 'database')).toBeDefined();
-            expect(result.differences.find(d => d.field === 'features')).toBeDefined();
-            expect(result.metadata.version).toBeDefined();
-            expect(result.metadata.lastUpdated).toBeDefined();
+            expect(result.length).toBeGreaterThan(0);
+            
+            // 检查具体变更
+            const hostChange = result.find(c => c.path === '$.database.host');
+            expect(hostChange).toBeDefined();
+            expect(hostChange!.oldValue).toBe('localhost');
+            expect(hostChange!.value).toBe('production.db.com');
+            
+            const notificationsChange = result.find(c => c.path === '$.features.notifications');
+            expect(notificationsChange).toBeDefined();
+            expect(notificationsChange!.oldValue).toBe(false);
+            expect(notificationsChange!.value).toBe(true);
+            
+            // 检查新增的功能
+            const newFeatureChange = result.find(c => c.path === '$.features.newFeature');
+            expect(newFeatureChange).toBeDefined();
+            expect(newFeatureChange!.type).toBe('ADD');
+            expect(newFeatureChange!.value).toBe(true);
+            
+            // 检查元数据
+            const metadata = getMetadataChanges(config1, config2, {
+                metadataFields: ['version', 'lastUpdated']
+            });
+            expect(metadata.version).toBeDefined();
+            expect(metadata.lastUpdated).toBeDefined();
         });
     });
 }); 

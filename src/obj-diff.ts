@@ -1,4 +1,4 @@
-import { diff, atomizeChangeset } from 'json-diff-ts';
+import { diff, atomizeChangeset, IAtomicChange } from 'json-diff-ts';
 
 // 定义一个通用的接口来表示对象差异
 export interface Difference<T> {
@@ -24,6 +24,21 @@ export interface DiffMetadata {
 export interface DiffResult<T> {
     differences: Difference<T>[];
     metadata: DiffMetadata;
+}
+
+/**
+ * 检查数组中是否包含指定元素
+ * @param array 数组
+ * @param item 要查找的元素
+ * @returns 是否包含
+ */
+function arrayIncludes<T>(array: T[], item: T): boolean {
+    for (let i = 0; i < array.length; i++) {
+        if (array[i] === item) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
@@ -99,34 +114,17 @@ function isNestedPath(path: string): boolean {
 }
 
 /**
- * 检查数组中是否包含指定元素
- * @param array 数组
- * @param item 要查找的元素
- * @returns 是否包含
- */
-function arrayIncludes<T>(array: T[], item: T): boolean {
-    for (let i = 0; i < array.length; i++) {
-        if (array[i] === item) {
-            return true;
-        }
-    }
-    return false;
-}
-
-/**
- * 比较两个对象并返回它们之间的差异
+ * 比较两个对象并返回它们之间的原子化差异
  * @param obj1 第一个对象
  * @param obj2 第二个对象
  * @param options 配置选项
- * @returns 包含差异信息和元数据的结果对象
+ * @returns IAtomicChange 数组，每个元素代表一个原子化的变更操作
  */
 export function findDifferences<T extends object>(
     obj1: T,
     obj2: T,
     options: DiffOptions = {}
-): DiffResult<T> {
-    const differences: Difference<T>[] = [];
-    const metadata: DiffMetadata = {};
+): IAtomicChange[] {
     const metadataFields = options.metadataFields || [];
 
     // 使用 json-diff-ts 计算差异
@@ -134,66 +132,82 @@ export function findDifferences<T extends object>(
     
     if (!diffs) {
         // 没有差异
-        return { differences, metadata };
+        return [];
     }
 
     // 将差异转换为原子化变更集
     const atomicChanges = atomizeChangeset(diffs);
     
-    // 用于跟踪已处理的顶级字段，避免重复
-    const processedFields: { [key: string]: boolean } = {};
+    // 如果没有元数据字段配置，直接返回所有原子化变更
+    if (metadataFields.length === 0) {
+        return atomicChanges;
+    }
     
-    // 遍历原子化变更
+    // 过滤掉元数据字段的变更
+    const filteredChanges: IAtomicChange[] = [];
+    
     for (let i = 0; i < atomicChanges.length; i++) {
         const change = atomicChanges[i];
         const fieldName = extractFieldFromPath(change.path);
         
-        // 跳过空字段名
-        if (!fieldName) {
-            continue;
+        // 如果不是元数据字段，则包含在结果中
+        if (!arrayIncludes(metadataFields, fieldName)) {
+            filteredChanges.push(change);
         }
+    }
+    
+    return filteredChanges;
+}
+
+/**
+ * 检查是否有差异
+ * @param changes 原子化变更数组
+ * @returns 是否有差异
+ */
+export const hasDiff = (changes: IAtomicChange[]): boolean => changes.length > 0;
+
+/**
+ * 获取元数据字段的变更信息
+ * @param obj1 第一个对象
+ * @param obj2 第二个对象
+ * @param options 配置选项
+ * @returns 元数据字段的变更信息
+ */
+export function getMetadataChanges<T extends object>(
+    obj1: T,
+    obj2: T,
+    options: DiffOptions = {}
+): { [key: string]: { value1: any; value2: any } } {
+    const metadataFields = options.metadataFields || [];
+    const metadata: { [key: string]: { value1: any; value2: any } } = {};
+    
+    if (metadataFields.length === 0) {
+        return metadata;
+    }
+    
+    // 使用 json-diff-ts 计算差异
+    const diffs = diff(obj1, obj2);
+    
+    if (!diffs) {
+        return metadata;
+    }
+
+    // 将差异转换为原子化变更集
+    const atomicChanges = atomizeChangeset(diffs);
+    
+    // 收集元数据字段的变更
+    for (let i = 0; i < atomicChanges.length; i++) {
+        const change = atomicChanges[i];
+        const fieldName = extractFieldFromPath(change.path);
         
-        // 检查是否是元数据字段
+        // 如果是元数据字段
         if (arrayIncludes(metadataFields, fieldName)) {
             metadata[fieldName] = {
                 value1: getValueByPath(obj1, change.path),
                 value2: change.value
             };
-            continue;
-        }
-
-        // 如果这个顶级字段还没有被处理过
-        if (!processedFields[fieldName]) {
-            processedFields[fieldName] = true;
-            
-            const value1 = (obj1 as any)[fieldName];
-            const value2 = (obj2 as any)[fieldName];
-            
-            // 检查是否为嵌套对象的变更
-            let hasNestedChanges = false;
-            for (let j = 0; j < atomicChanges.length; j++) {
-                const c = atomicChanges[j];
-                const f = extractFieldFromPath(c.path);
-                if (f === fieldName && isNestedPath(c.path)) {
-                    hasNestedChanges = true;
-                    break;
-                }
-            }
-            
-            differences.push({
-                field: fieldName as keyof T,
-                value1,
-                value2
-            });
         }
     }
-
-    return { differences, metadata };
+    
+    return metadata;
 }
-
-/**
- * 检查差异结果中是否有差异
- * @param diff 差异结果
- * @returns 是否有差异
- */
-export const hasDiff = (diff: DiffResult<any>): boolean => diff.differences.length > 0;
