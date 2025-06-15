@@ -109,15 +109,8 @@ export class TeweetClient {
 
     getNextFetchScreenName = async () => {
         const neverFetchedUser = await this.prisma.fetchUserScreenName.findFirst({
-            where: {
-                OR: [
-                    { lastFetchAt: null },
-                    { lastFetchAt: { not: null } }
-                ]
-            },
             orderBy: [
-                { lastFetchAt: { sort: 'asc', nulls: 'first' } },
-                { id: 'asc' }
+                { lastFetchAt: { sort: 'asc', nulls: 'first' } }
             ]
         });
         return neverFetchedUser
@@ -228,8 +221,8 @@ export class TeweetClient {
 
     setUserLastFetchedTime = async (id: number) => {
         return this.prisma.fetchUserScreenName.update({
-					where: { id },
-					data: { lastFetchAt: new Date() }
-				});
+            where: { id },
+            data: { lastFetchAt: new Date() }
+        });
     }
 }

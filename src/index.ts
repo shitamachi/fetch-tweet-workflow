@@ -38,26 +38,30 @@ export class FetchTweetWorkflow extends WorkflowEntrypoint<Env, Params> {
 
 		const client = new TeweetClient(prisma, xc);
 
-		const nextFetchUser = await step.do('get next user to fetch tweet', async () => {
-			const u = await client.getNextFetchScreenName();
-			if (!u) {
-				console.warn('can not get next user to fetch tweets');
-				throw new Error('can not get next user to fetch tweets');
-			}
-			return u;
-		});
+		try {
+			const nextFetchUser = await step.do('get next user to fetch tweet', async () => {
+				const u = await client.getNextFetchScreenName();
+				if (!u) {
+					console.warn('can not get next user to fetch tweets');
+					throw new Error('can not get next user to fetch tweets');
+				}
+				return u;
+			});
 
-		let fetchedUserInfo = await step.do('fetch user info', async () => {
-			return await client.fetchUser(nextFetchUser.screenName);
-		});
+			let fetchedUserInfo = await step.do('fetch user info', async () => {
+				return await client.fetchUser(nextFetchUser.screenName);
+			});
 
-		await step.do('fetch user recently tweets', async () => {
-			await client.fetchUserTweetsAndReplies(fetchedUserInfo.restId);
-		});
+			await step.do('fetch user recently tweets', async () => {
+				await client.fetchUserTweetsAndReplies(fetchedUserInfo.restId);
+			});
 
-		await step.do('set last fetch time', async () => {
-			await client.setUserLastFetchedTime(nextFetchUser.id)
-		})
+			await step.do('set last fetch time', async () => {
+				await client.setUserLastFetchedTime(nextFetchUser.id)
+			})
+		} catch (e) {
+			console.error(`fetch tweet workflow error ${e}`);
+		}
 	}
 }
 // </docs-tag name="workflow-entrypoint">
