@@ -54,6 +54,7 @@ model User {
 model UserDiff {
   id        Int      @id @default(autoincrement())
   userId    String
+  curJson   String?
   prevJson  String?
   diffJson  String
   prevTime  DateTime

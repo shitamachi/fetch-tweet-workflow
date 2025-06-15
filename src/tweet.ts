@@ -182,9 +182,10 @@ export class TeweetClient {
                                 userId: user.restId,
                                 createdAt: now,
                                 prevJson: prevUser.rawJson,
+															  curJson: raw,
                                 diffJson: JSON.stringify(diff),
                                 newTime: now,
-                                prevTime: prevUser.updatedAt
+                                prevTime: prevUser.updatedAt,
                             }
                         })
                     ])
